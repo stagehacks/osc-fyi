@@ -27,6 +27,8 @@ jobs:
           } > shortcuts.md
           [ -z "$missing" ] || echo "failed=true" >> "$GITHUB_OUTPUT"
 
+      # Yamaha's short links sit behind Akamai, which 403s GitHub runners;
+      # check the data.yamaha.com hosts they redirect to instead.
       - name: Check redirect targets
         id: lychee
         uses: lycheeverse/lychee-action@v2
@@ -37,6 +39,8 @@ jobs:
             --retry-wait-time 10
             --timeout 30
             --user-agent "Mozilla/5.0 (compatible; osc.fyi link checker; +https://osc.fyi)"
+            --remap 'https://asia-oceania\.yamaha\.com/ https://data.yamaha.com/'
+            --remap 'https://download\.yamaha\.com/ https://data.yamaha.com/'
             _redirects
           output: lychee.md
           fail: false
