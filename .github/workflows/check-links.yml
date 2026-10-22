@@ -1,0 +1,57 @@
+name: Check links
+
+on:
+  schedule:
+    - cron: "0 14 * * 1" # Mondays 14:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Every /shortcut linked from index.html should have a matching redirect.
+      - name: Check index.html shortcuts exist in _redirects
+        id: shortcuts
+        run: |
+          missing=$(grep -o 'href="/[^"]*"' index.html | sed 's/href="//; s/"$//' | sort -u \
+            | while read -r path; do grep -q "^$path " _redirects || echo "$path"; done)
+          {
+            echo "## Shortcuts with no redirect"
+            if [ -n "$missing" ]; then echo "$missing" | sed 's/^/- /'; else echo "None"; fi
+          } > shortcuts.md
+          [ -z "$missing" ] || echo "failed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Check redirect targets
+        id: lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --max-retries 3
+            --retry-wait-time 10
+            --timeout 30
+            --user-agent "Mozilla/5.0 (compatible; osc.fyi link checker; +https://osc.fyi)"
+            _redirects
+          output: lychee.md
+          fail: false
+
+      - name: Open or update issue on failure
+        if: steps.lychee.outputs.exit_code != 0 || steps.shortcuts.outputs.failed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat lychee.md shortcuts.md > report.md
+          echo -e "\n[Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> report.md
+          existing=$(gh issue list --state open --search "in:title Broken links" --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file report.md
+          else
+            gh issue create --title "Broken links" --body-file report.md
+          fi
+          exit 1
